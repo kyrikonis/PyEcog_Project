@@ -7,6 +7,7 @@ import weakref
 import numpy as np
 from scipy import signal
 from pyecog2.ProjectClass import intervals_overlap
+from pyecog2.modality_utils import get_modality_info
 import logging
 logger = logging.getLogger(__name__)
 
@@ -221,7 +222,47 @@ class PyecogScaleBar():
         self.bar_length = data_range
         self.bar.yrange = [dmin, dmax]
         self.bar._computeBoundingRect()
-        label = f'{int(self.bar_length*p)}{pref}V'
+        
+        # for multi-modal data support
+        # change label based on modality type from modality_info
+        try:
+            # Access file buffer through curve item if available
+            if hasattr(self.curve_item, 'file_buffer') and self.curve_item.file_buffer:
+                if self.curve_item.file_buffer.metadata:
+                    metadata = self.curve_item.file_buffer.metadata[0]  # first files metadata
+                    modality_info = get_modality_info(metadata)
+                    modality_type = modality_info.get('modality_type', 'voltage')
+                    unit = modality_info.get('unit', 'V')
+                else:
+                    # if no metadata available defaults to voltage
+                    modality_type = 'voltage'
+                    unit = 'V'
+            else:
+                # No file buffer then default to voltage
+                modality_type = 'voltage'
+                unit = 'V'
+
+            # Format label based on modality type
+            if modality_type == 'voltage':
+                # existing voltage formatting
+                label = f'{int(self.bar_length*p)}{pref}V'
+            elif modality_type == 'variance':
+                # variance uses basic scientific notation
+                label = f'{self.bar_length:.2e} var'
+            elif modality_type == 'temperature':
+                # temp in Celsius
+                label = f'{self.bar_length:.1f}°C'
+            elif modality_type == 'categorical':
+                label = 'categorical'
+            else:
+                # if modality is unknown show unit from metadata
+                label = f'{self.bar_length:.2e} {unit}'
+
+        except Exception:
+            # fallback to voltage if there's any issues
+            label = f'{int(self.bar_length*p)}{pref}V'
+
+
         self.label_text.setText(label)
         self.label_text.setPos(dmin,0)
         # print(f'Scale bar:{data_range},{p},{self.bar_length},{label}')
