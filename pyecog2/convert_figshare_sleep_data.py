@@ -73,7 +73,6 @@ def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=No
 
     # power spectra not needed for conversion so discarding with _
     sleep_scores, _, EEG_var, EMG_var, Temperature = readbinary_dat(dat_file)
-    raw_EEG = readbinary_EEG(eeg_file)
 
     # Same start time Marco used in his notebook
     start_timestamp = int(datetime(2023, 1, 1, 7, 0, 0).timestamp())
@@ -81,11 +80,10 @@ def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=No
 
     created_files = {}
 
-    # EEG
-    eeg_path = os.path.join(output_folder, f"{animal_id}_EEG.bin")
-    raw_EEG.tofile(eeg_path)  # already float32 from readbinary_EEG
+    # EEG: point .meta directly at the original .eeg file (already float32)
+    # no need to copy ~276 MB of identical data into a .bin
     created_files['EEG'] = create_metafile_for_modality(
-        binary_file=eeg_path, fs=200, no_channels=1, data_format='float32',
+        binary_file=eeg_file, fs=200, no_channels=1, data_format='float32',
         start_timestamp_unix=start_timestamp, duration=duration,
         modality_type='voltage', unit='V', scale_factor=1.0,
         channel_labels=['EEG'], transmitter_id=animal_id
