@@ -226,19 +226,19 @@ class PyecogScaleBar():
         # for multi-modal data support
         # change label based on modality type from modality_info
         try:
-            # Access file buffer through curve item if available
-            if hasattr(self.curve_item, 'file_buffer') and self.curve_item.file_buffer:
-                if self.curve_item.file_buffer.metadata:
-                    metadata = self.curve_item.file_buffer.metadata[0]  # first files metadata
-                    modality_info = get_modality_info(metadata)
-                    modality_type = modality_info.get('modality_type', 'voltage')
-                    unit = modality_info.get('unit', 'V')
-                else:
-                    # if no metadata available defaults to voltage
-                    modality_type = 'voltage'
-                    unit = 'V'
+            # Access file buffer through project (curve_item -> project -> file_buffer)
+            file_buffer = None
+            if hasattr(self.curve_item, 'project') and self.curve_item.project is not None:
+                if hasattr(self.curve_item.project, 'file_buffer'):
+                    file_buffer = self.curve_item.project.file_buffer
+
+            if file_buffer is not None and file_buffer.metadata:
+                metadata = file_buffer.metadata[0]  # first file's metadata
+                modality_info = get_modality_info(metadata)
+                modality_type = modality_info.get('modality_type', 'voltage')
+                unit = modality_info.get('unit', 'V')
             else:
-                # No file buffer then default to voltage
+                # no file buffer or metadata, default to voltage
                 modality_type = 'voltage'
                 unit = 'V'
 

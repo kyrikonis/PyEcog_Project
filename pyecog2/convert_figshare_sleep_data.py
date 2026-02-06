@@ -31,18 +31,18 @@ def readbinary_dat(file):
     # defining dtype of each record
     # so numpy can read all 86400 records in one call instead of looping.
     record_dtype = np.dtype([
-        ('score', 'S1'),           # 1 byte: sleep state char ('w', 'nrem', or 'rem')
-        ('spectrum', 'f4', (401,)),  # 401 floats: power spectrum bins (0-100Hz at 0.25Hz)
-        ('misc', 'f4', (3,))        # 3 floats: EEG variance, EMG variance, temperature
+        ('score', 'S1'),              # 1 byte: sleep state char ('w', 'n', or 'r')
+        ('spectra', np.float32, (401,)),  # 401 floats: power spectrum bins (0-100Hz at 0.25Hz)
+        ('misc', np.float32, (3,))       # 3 floats: EEG variance, EMG variance, temperature
     ])
-    records = np.fromfile(file, dtype=record_dtype)
+    records = np.fromfile(file, dtype=record_dtype, count=86400)
 
     # Unpack fields from the structured array
-    sleep_scores = records['score'].tobytes().decode('utf-8')
-    power_spectra = records['spectrum']
-    EEG_variance = records['misc'][:, 0].copy() # made a copy so it's a standalone array
-    EMG_variance = records['misc'][:, 1].copy()
-    Temperature = records['misc'][:, 2].copy()
+    sleep_scores = ''.join(r.decode('utf-8') for r in records['score'])
+    power_spectra = records['spectra']
+    EEG_variance = records['misc'][:, 0]
+    EMG_variance = records['misc'][:, 1]
+    Temperature = records['misc'][:, 2].copy()  #copy needed since we may replace with empty array
 
     # assuming temp not recorded when 0 at the start
     if Temperature[0] == 0:
@@ -80,14 +80,20 @@ def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=No
 
     created_files = {}
 
-    # EEG: point .meta directly at the original .eeg file (already float32)
+    # EEG: point .meta at the original .eeg file (already float32)
     # no need to copy ~276 MB of identical data into a .bin
-    created_files['EEG'] = create_metafile_for_modality(
+    # create_metafile_for_modality puts .meta next to the binary file,
+    # so we move it into output_folder so all .meta files are together for the GUI
+    eeg_meta = create_metafile_for_modality(
         binary_file=eeg_file, fs=200, no_channels=1, data_format='float32',
         start_timestamp_unix=start_timestamp, duration=duration,
         modality_type='voltage', unit='V', scale_factor=1.0,
         channel_labels=['EEG'], transmitter_id=animal_id
     )
+    # move .meta into output_folder (GUI only scans top-level directory)
+    eeg_meta_dest = os.path.join(output_folder, os.path.basename(eeg_meta))
+    os.replace(eeg_meta, eeg_meta_dest)
+    created_files['EEG'] = eeg_meta_dest
 
     # EMG variance
     emg_path = os.path.join(output_folder, f"{animal_id}_EMG.bin")
