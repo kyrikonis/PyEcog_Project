@@ -94,11 +94,11 @@ def create_metafile_for_modality(binary_file, fs, no_channels, data_format, star
         modality_info['categories'] = categories
 
     metadata = OrderedDict(
-        binaryfilename=binary_file,
+        binaryfilename=os.path.abspath(binary_file),
         channel_labels=channel_labels,
         data_format=data_format,
         duration=duration,
-        experiment_metadata_str=experiment_metadata_str,
+        experiment_metadata_str=experiment_metadata,
         fs=fs,
         modality_info=modality_info,
         no_channels=no_channels,
