@@ -62,7 +62,6 @@ def readbinary_EEG(file):
 def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=None):
     """
     Convert one animal's data into separate per modality .bin + .meta files.
-
     Returns dict mapping modality to its .meta file path.
     """
     if animal_id is None:

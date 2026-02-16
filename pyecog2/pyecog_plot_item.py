@@ -55,6 +55,11 @@ class PyecogPlotCurveItem(pg.PlotCurveItem):
     def set_data(self, project, channel,):
         self.project = project
         self.channel = channel
+        # detect modality type for hypnogram style step rendering of categorical data
+        self.modality_type = 'voltage'
+        if hasattr(project, 'file_buffer') and project.file_buffer.metadata:
+            info = get_modality_info(project.file_buffer.metadata[0])
+            self.modality_type = info.get('modality_type', 'voltage')
         self.setData_with_envelope()
 
     def setData_with_envelope(self):
@@ -142,7 +147,12 @@ class PyecogPlotCurveItem(pg.PlotCurveItem):
             new_args[-1] = 0 # force reset on next plot
 
         # print('visible data shape:',visible_data.shape)
-        self.setData(y=visible_data.ravel(), x=self.visible_time.ravel(), pen=self.pen)  # update the plot
+        # categorical data: render as flat steps (hypnogram style) instead of continuous line
+        if getattr(self, 'modality_type', 'voltage') == 'categorical':
+            self.setData(y=visible_data.ravel(), x=self.visible_time.ravel(),
+                         pen=self.pen, stepMode='center')
+        else:
+            self.setData(y=visible_data.ravel(), x=self.visible_time.ravel(), pen=self.pen)
         # self.resetTransform()
         self.previous_args = new_args
         self.scale_Bar.update_from_curve_item()
@@ -212,9 +222,14 @@ class PyecogScaleBar():
             drange0 = (dmax-dmin) + 1e-12 # add a pico volt to avoid underflows
         else:
             return
-        data_range = min(drange0, 6*np.std(self.curve_item.visible_data) + 1e-12)  # decreases the effect of massive spikes in data
-        data_range10 = 10**np.floor(np.log10(data_range))
-        data_range = int(drange0/data_range10)*data_range10  # keep just one significant digit
+        # categorical data has intentionally discrete values, no outlier suppression needed
+        is_categorical = getattr(self.curve_item, 'modality_type', 'voltage') == 'categorical'
+        if is_categorical:
+            data_range = drange0
+        else:
+            data_range = min(drange0, 6*np.std(self.curve_item.visible_data) + 1e-12)  # decreases effect of massive spikes in data
+            data_range10 = 10**np.floor(np.log10(data_range))
+            data_range = int(drange0/data_range10)*data_range10  # keep just one significant digit
         dmax, dmin = (dmax*data_range/drange0,  dmin*data_range/drange0)
         (p, pref) = siScale(data_range)
         self.curve_item.visible_time = self.curve_item.visible_time.ravel()  # there is some sort of inconsistency in visible_time shape
@@ -253,7 +268,14 @@ class PyecogScaleBar():
                 # temp in Celsius
                 label = f'{self.bar_length:.1f}°C'
             elif modality_type == 'categorical':
-                label = 'categorical'
+                # show category mapping from .meta, e.g. "0:? 1:W 2:N 3:R" 
+                # could change to be dynamic to work with other categorical data?
+                categories = modality_info.get('categories', {})
+                if categories:
+                    sorted_cats = sorted(categories.items(), key=lambda x: x[1])
+                    label = ' '.join(f'{v}:{k[0]}' for k, v in sorted_cats)
+                else:
+                    label = 'categorical'
             else:
                 # if modality is unknown show unit from metadata
                 label = f'{self.bar_length:.2e} {unit}'
