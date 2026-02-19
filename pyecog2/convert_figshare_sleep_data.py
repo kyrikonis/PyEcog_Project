@@ -53,7 +53,7 @@ def readbinary_dat(file):
 
 
 def readbinary_EEG(file):
-    """Read raw EEG binary file. 200 Hz float32, typically ~69M samples (96 hours)."""
+    """Read raw EEG binary file"""
     raw_EEG = np.fromfile(file, dtype=np.float32)
     logger.info(f"Read {file}: {len(raw_EEG)} samples ({len(raw_EEG)/200/3600:.1f} hours)")
     return raw_EEG
@@ -140,7 +140,7 @@ def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=No
 
     #logging sleep stage distribution
     for label, code in [('wake', 1), ('NREM', 2), ('REM', 3)]:
-        logger.info(f"  {label}: {np.sum(sleep_numeric == code)} epochs")
+        logger.info(f"{label}: {np.sum(sleep_numeric == code)} epochs")
 
     return created_files
 
