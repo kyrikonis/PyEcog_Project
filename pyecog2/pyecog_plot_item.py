@@ -7,6 +7,7 @@ import weakref
 import numpy as np
 from scipy import signal
 from pyecog2.ProjectClass import intervals_overlap
+from pyecog2.modality_utils import get_modality_info
 import logging
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,11 @@ class PyecogPlotCurveItem(pg.PlotCurveItem):
     def set_data(self, project, channel,):
         self.project = project
         self.channel = channel
+        # detect modality type for hypnogram style step rendering of categorical data
+        self.modality_type = 'voltage'
+        if hasattr(project, 'file_buffer') and project.file_buffer.metadata:
+            info = get_modality_info(project.file_buffer.metadata[0])
+            self.modality_type = info.get('modality_type', 'voltage')
         self.setData_with_envelope()
 
     def setData_with_envelope(self):
@@ -141,7 +147,12 @@ class PyecogPlotCurveItem(pg.PlotCurveItem):
             new_args[-1] = 0 # force reset on next plot
 
         # print('visible data shape:',visible_data.shape)
-        self.setData(y=visible_data.ravel(), x=self.visible_time.ravel(), pen=self.pen)  # update the plot
+        # categorical data: render as flat steps (hypnogram style) instead of continuous line
+        if getattr(self, 'modality_type', 'voltage') == 'categorical':
+            self.setData(y=visible_data.ravel(), x=self.visible_time.ravel(),
+                         pen=self.pen, stepMode='center')
+        else:
+            self.setData(y=visible_data.ravel(), x=self.visible_time.ravel(), pen=self.pen)
         # self.resetTransform()
         self.previous_args = new_args
         self.scale_Bar.update_from_curve_item()
@@ -211,9 +222,14 @@ class PyecogScaleBar():
             drange0 = (dmax-dmin) + 1e-12 # add a pico volt to avoid underflows
         else:
             return
-        data_range = min(drange0, 6*np.std(self.curve_item.visible_data) + 1e-12)  # decreases the effect of massive spikes in data
-        data_range10 = 10**np.floor(np.log10(data_range))
-        data_range = int(drange0/data_range10)*data_range10  # keep just one significant digit
+        # categorical data has intentionally discrete values, no outlier suppression needed
+        is_categorical = getattr(self.curve_item, 'modality_type', 'voltage') == 'categorical'
+        if is_categorical:
+            data_range = drange0
+        else:
+            data_range = min(drange0, 6*np.std(self.curve_item.visible_data) + 1e-12)  # decreases effect of massive spikes in data
+            data_range10 = 10**np.floor(np.log10(data_range))
+            data_range = int(drange0/data_range10)*data_range10  # keep just one significant digit
         dmax, dmin = (dmax*data_range/drange0,  dmin*data_range/drange0)
         (p, pref) = siScale(data_range)
         self.curve_item.visible_time = self.curve_item.visible_time.ravel()  # there is some sort of inconsistency in visible_time shape
@@ -221,7 +237,54 @@ class PyecogScaleBar():
         self.bar_length = data_range
         self.bar.yrange = [dmin, dmax]
         self.bar._computeBoundingRect()
-        label = f'{int(self.bar_length*p)}{pref}V'
+        
+        # for multi-modal data support
+        # change label based on modality type from modality_info
+        try:
+            # Access file buffer through project (curve_item -> project -> file_buffer)
+            file_buffer = None
+            if hasattr(self.curve_item, 'project') and self.curve_item.project is not None:
+                if hasattr(self.curve_item.project, 'file_buffer'):
+                    file_buffer = self.curve_item.project.file_buffer
+
+            if file_buffer is not None and file_buffer.metadata:
+                metadata = file_buffer.metadata[0]  # first file's metadata
+                modality_info = get_modality_info(metadata)
+                modality_type = modality_info.get('modality_type', 'voltage')
+                unit = modality_info.get('unit', 'V')
+            else:
+                # no file buffer or metadata, default to voltage
+                modality_type = 'voltage'
+                unit = 'V'
+
+            # Format label based on modality type
+            if modality_type == 'voltage':
+                # existing voltage formatting
+                label = f'{int(self.bar_length*p)}{pref}V'
+            elif modality_type == 'variance':
+                # variance uses basic scientific notation
+                label = f'{self.bar_length:.2e} var'
+            elif modality_type == 'temperature':
+                # temp in Celsius
+                label = f'{self.bar_length:.1f}°C'
+            elif modality_type == 'categorical':
+                # show category mapping from .meta, e.g. "0:? 1:W 2:N 3:R" 
+                # could change to be dynamic to work with other categorical data?
+                categories = modality_info.get('categories', {})
+                if categories:
+                    sorted_cats = sorted(categories.items(), key=lambda x: x[1])
+                    label = ' '.join(f'{v}:{k[0]}' for k, v in sorted_cats)
+                else:
+                    label = 'categorical'
+            else:
+                # if modality is unknown show unit from metadata
+                label = f'{self.bar_length:.2e} {unit}'
+
+        except Exception:
+            # fallback to voltage if there's any issues
+            label = f'{int(self.bar_length*p)}{pref}V'
+
+
         self.label_text.setText(label)
         self.label_text.setPos(dmin,0)
         # print(f'Scale bar:{data_range},{p},{self.bar_length},{label}')

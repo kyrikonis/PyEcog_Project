@@ -17,6 +17,7 @@ from pyqtgraph.Point import Point
 from timeit import default_timer as timer
 from pyecog2.ProjectClass import intervals_overlap
 from pyecog2.annotations_module import i_spaced_nfold
+from pyecog2.modality_utils import get_modality_info
 
 import logging
 logger = logging.getLogger(__name__)
@@ -227,9 +228,27 @@ class PairedGraphicsView():
             if len(arr.shape) < 2:
                 return
             self.n_channels = arr.shape[1]
-            self.scale = 1 / (8 * np.mean(np.std(arr, axis=0, keepdims=True), axis=1) + 1e-12)
-            self.overview_plot.vb.setYRange(-2, arr.shape[1] + 1)
-            self.insetview_plot.vb.setYRange(-2, arr.shape[1] + 1)
+
+            # detect modality type for computing scale
+            modality_type = 'voltage'
+            if hasattr(self.main_model.project, 'file_buffer') and self.main_model.project.file_buffer.metadata:
+                modality_info = get_modality_info(self.main_model.project.file_buffer.metadata[0])
+                modality_type = modality_info.get('modality_type', 'voltage')
+
+            if modality_type == 'categorical':
+                # scale 1.0 so values 0-3 map directly to y=0,1,2,3
+                self.scale = 1.0
+            else:
+                self.scale = 1 / (8 * np.mean(np.std(arr, axis=0, keepdims=True), axis=1) + 1e-12)
+
+            if modality_type == 'categorical':
+                # wider y-value range to fit values 0-3
+                # should change to be dynamic for future categorical data that isn't sleep states
+                self.overview_plot.vb.setYRange(-1, 4)
+                self.insetview_plot.vb.setYRange(-1, 4)
+            else:
+                self.overview_plot.vb.setYRange(-2, arr.shape[1] + 1)
+                self.insetview_plot.vb.setYRange(-2, arr.shape[1] + 1)
             self.timeline_plot.setTitle('<p style="font-size:large"> Animal: ' + self.animalid + '</b>')
             end_t = timer()
 
