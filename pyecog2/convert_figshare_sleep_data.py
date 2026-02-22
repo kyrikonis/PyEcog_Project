@@ -115,7 +115,7 @@ def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=No
             channel_labels=['Temperature'], transmitter_id=animal_id
         )
     else:
-        logger.info(f"  {animal_id}: temperature not recorded, skipping")
+        logger.info(f"{animal_id}: temperature not recorded, skipping")
 
     # Sleep states
     sleep_path = os.path.join(output_folder, f"{animal_id}_SleepScore.bin")

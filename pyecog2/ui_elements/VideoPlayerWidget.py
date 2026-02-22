@@ -15,10 +15,11 @@ import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
-import pkg_resources
-clock_icon_file = pkg_resources.resource_filename('pyecog2', 'icons/wall-clock.png')
-play_icon_file = pkg_resources.resource_filename('pyecog2', 'icons/play.png')
-pause_icon_file = pkg_resources.resource_filename('pyecog2', 'icons/pause.png')
+from pathlib import Path
+_icons_dir = Path(__file__).parent.parent / 'icons'
+clock_icon_file = str(_icons_dir / 'wall-clock.png')
+play_icon_file = str(_icons_dir / 'play.png')
+pause_icon_file = str(_icons_dir / 'pause.png')
 
 class VideoWindow(QWidget):
     sigTimeChanged = Signal(object)
