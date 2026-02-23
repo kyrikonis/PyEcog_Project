@@ -39,6 +39,12 @@ class PyecogPlotCurveItem(pg.PlotCurveItem):
             self.pen = pen
 
         self.n_display_points = viewbox.width  # 5000  # this should be horizontal resolution of window
+        # set modality_type before viewRangeChanged function
+        # for it to use the correct rendering path even if set_data() hasn't run yet
+        self.modality_type = 'voltage'
+        if hasattr(project, 'file_buffer') and project.file_buffer.metadata:
+            info = get_modality_info(project.file_buffer.metadata[0])
+            self.modality_type = info.get('modality_type', 'voltage')
         super().__init__(*args, **kwds)
         self.resetTransform()
         self.setZValue(1)
@@ -71,7 +77,9 @@ class PyecogPlotCurveItem(pg.PlotCurveItem):
             return
         # print('displaying n points', n)
         # print('new n, previous n:',new_args[-1], self.previous_args[-1])
-        if self.parent_viewbox.viewRange()[1][0]-2 < self.channel < self.parent_viewbox.viewRange()[1][1]+2: # Avoid plotting channels out of view
+        # for temp and emg the y-axis to plot in its actual units
+        _is_physical = getattr(self, 'modality_type', 'voltage') not in ('voltage', 'categorical')
+        if _is_physical or self.parent_viewbox.viewRange()[1][0]-2 < self.channel < self.parent_viewbox.viewRange()[1][1]+2: # Avoid plotting channels out of view
             newXRange = new_args[0][0]
             previousXRange = self.previous_args[0][0]
             if newXRange[1]-newXRange[0] != previousXRange[1]-previousXRange[0] or \
@@ -147,10 +155,11 @@ class PyecogPlotCurveItem(pg.PlotCurveItem):
             new_args[-1] = 0 # force reset on next plot
 
         # print('visible data shape:',visible_data.shape)
-        # categorical data: render as flat steps (hypnogram style) instead of continuous line
+        # categorical data plotted as a hypnogram
+        #changed to stepMode from center to left to fix issue of sleepscore plot showing as empty
         if getattr(self, 'modality_type', 'voltage') == 'categorical':
             self.setData(y=visible_data.ravel(), x=self.visible_time.ravel(),
-                         pen=self.pen, stepMode='center')
+                         pen=self.pen, stepMode='left')
         else:
             self.setData(y=visible_data.ravel(), x=self.visible_time.ravel(), pen=self.pen)
         # self.resetTransform()
@@ -222,15 +231,17 @@ class PyecogScaleBar():
             drange0 = (dmax-dmin) + 1e-12 # add a pico volt to avoid underflows
         else:
             return
-        # categorical data has intentionally discrete values, no outlier suppression needed
-        is_categorical = getattr(self.curve_item, 'modality_type', 'voltage') == 'categorical'
-        if is_categorical:
+        curve_modality = getattr(self.curve_item, 'modality_type', 'voltage')
+        is_categorical = curve_modality == 'categorical'
+        is_physical = curve_modality not in ('voltage', 'categorical')
+        if is_categorical or is_physical:
+            # for temp keeping actual dmin/dmax so bar.yrange maps to real y-axis
             data_range = drange0
         else:
             data_range = min(drange0, 6*np.std(self.curve_item.visible_data) + 1e-12)  # decreases effect of massive spikes in data
             data_range10 = 10**np.floor(np.log10(data_range))
             data_range = int(drange0/data_range10)*data_range10  # keep just one significant digit
-        dmax, dmin = (dmax*data_range/drange0,  dmin*data_range/drange0)
+            dmax, dmin = (dmax*data_range/drange0,  dmin*data_range/drange0)
         (p, pref) = siScale(data_range)
         self.curve_item.visible_time = self.curve_item.visible_time.ravel()  # there is some sort of inconsistency in visible_time shape
         self.bar.setPos((self.curve_item.visible_time[0]*.975 + 0.025*self.curve_item.visible_time[-1]))
