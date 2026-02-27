@@ -2,14 +2,12 @@
 conversion script for FigShare sleep dataset to separate files for multi modal support.
 
 Reads original files:
-- .dat files: sleep scores, power spectra, EEG variance, EMG variance, temperature
+- .dat files: sleep states, power spectra, EEG, EMG, and temperature
 - .eeg files: raw 200 Hz EEG data
 
-Converts to PyEcog format with separate files per data type:
-{x}_EEG.bin 200 Hz raw voltage
-{x}_EMG.bin (sample every 4s), EMG variance
-{x}_Temperature.bin (sample every 4s), temperature (if recorded)
-{x}_SleepScore.bin (sample every 4s), categorical sleep states
+x_EEG_EMG.bin: EEG with EMG variance upsampled to 200 Hz through linear interpolation
+x_Temperature.bin (sample every 4s), temperature (for EXP2 files)
+x_SleepScore.bin (sample every 4s), categorical sleep states
 
 Each .bin gets a .meta file with modality info
 """
@@ -19,6 +17,7 @@ import os
 import logging
 from datetime import datetime
 from pyecog2.ProjectClass import create_metafile_for_modality
+from pyecog2.modality_utils import upsample_data
 logger = logging.getLogger(__name__)
 
 def readbinary_dat(file):
@@ -26,23 +25,19 @@ def readbinary_dat(file):
     reads .dat file from the FigShare sleep dataset.
 
     within figshare dataset each file has 86400 records (one per 4 second epoch, 96 hours total).
-    Each rrecord is: 1 byte score + 401 float32 spectrum + 3 float32 (EEG var, EMG var, temp).
     """
-    # defining dtype of each record
-    # so numpy can read all 86400 records in one call instead of looping.
     record_dtype = np.dtype([
-        ('score', 'S1'),              # 1 byte: sleep state char ('w', 'n', or 'r')
-        ('spectra', np.float32, (401,)),  # 401 floats: power spectrum bins (0-100Hz at 0.25Hz)
-        ('misc', np.float32, (3,))       # 3 floats: EEG variance, EMG variance, temperature
+        ('score', 'S1'),              # sleep state (wake, nrem, or rem)
+        ('spectra', np.float32, (401,)),  # 401 power spectrum bins (0 to 100Hz at 0.25Hz)
+        ('misc', np.float32, (3,))       # EEG, EMG variance and temp
     ])
     records = np.fromfile(file, dtype=record_dtype, count=86400)
 
-    # Unpack fields from the structured array
     sleep_scores = ''.join(r.decode('utf-8') for r in records['score'])
     power_spectra = records['spectra']
     EEG_variance = records['misc'][:, 0]
     EMG_variance = records['misc'][:, 1]
-    Temperature = records['misc'][:, 2].copy()  #copy needed since we may replace with empty array
+    Temperature = records['misc'][:, 2].copy()  #only EXP2 files have temp included so copy to replace with empty array
 
     # assuming temp not recorded when 0 at the start
     if Temperature[0] == 0:
@@ -79,29 +74,25 @@ def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=No
 
     created_files = {}
 
-    # EEG: point .meta at the original .eeg file (already float32)
-    # no need to copy ~276 MB of identical data into a .bin
-    # create_metafile_for_modality puts .meta next to the binary file,
-    # so we move it into output_folder so all .meta files are together for the GUI
-    eeg_meta = create_metafile_for_modality(
-        binary_file=eeg_file, fs=200, no_channels=1, data_format='float32',
+    # EEG and EMG combined into single 2 channel .bin file
+    # EMG variance upsampled from 0.25 to 200 Hz via linear interpolation
+    eeg_data = readbinary_EEG(eeg_file)
+    # converting from V^2 to V to be properly plotted alongside EEG
+    emg_std = np.sqrt(EMG_var).astype(np.float32)
+    emg_upsampled = upsample_data(emg_std, ratio=800, method='linear')
+
+    # trimming to the same length
+    n_samples = min(len(eeg_data), len(emg_upsampled))
+    combined = np.column_stack([eeg_data[:n_samples],
+                                emg_upsampled[:n_samples]]).astype(np.float32)
+
+    combined_path = os.path.join(output_folder, f"{animal_id}_EEG_EMG.bin")
+    combined.tofile(combined_path)
+    created_files['EEG_EMG'] = create_metafile_for_modality(
+        binary_file=combined_path, fs=200, no_channels=2, data_format='float32',
         start_timestamp_unix=start_timestamp, duration=duration,
         modality_type='voltage', unit='V', scale_factor=1.0,
-        channel_labels=['EEG'], transmitter_id=animal_id
-    )
-    # move .meta into output_folder (GUI only scans top-level directory)
-    eeg_meta_dest = os.path.join(output_folder, os.path.basename(eeg_meta))
-    os.replace(eeg_meta, eeg_meta_dest)
-    created_files['EEG'] = eeg_meta_dest
-
-    # EMG variance
-    emg_path = os.path.join(output_folder, f"{animal_id}_EMG.bin")
-    EMG_var.astype(np.float32).tofile(emg_path)
-    created_files['EMG'] = create_metafile_for_modality(
-        binary_file=emg_path, fs=0.25, no_channels=1, data_format='float32',
-        start_timestamp_unix=start_timestamp, duration=duration,
-        modality_type='variance', unit='variance', scale_factor=1.0,
-        channel_labels=['EMG_variance'], transmitter_id=animal_id
+        channel_labels=['EEG', 'EMG_std'], transmitter_id=animal_id
     )
 
     # temperature
@@ -115,18 +106,16 @@ def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=No
             channel_labels=['Temperature'], transmitter_id=animal_id
         )
     else:
-        logger.info(f"  {animal_id}: temperature not recorded, skipping")
+        logger.info(f"{animal_id}: temperature not recorded, skipping")
 
     # Sleep states
     sleep_path = os.path.join(output_folder, f"{animal_id}_SleepScore.bin")
 
-    # mapping state characters to numbers using an ASCII lookup table.
-    # score_map[ascii_code] = numeric_label, so score_map[ord('w')] = 1 etc
+    # mapping state characters to numbers
     score_map = np.zeros(256, dtype=np.uint8)
     score_map[ord('w')] = 1  # wake
     score_map[ord('n')] = 2  # NREM
     score_map[ord('r')] = 3  # REM
-    # converting score string to a byte array, then use it as indices into score_map
     sleep_numeric = score_map[np.frombuffer(sleep_scores.encode(), dtype=np.uint8)]
 
     sleep_numeric.tofile(sleep_path)
@@ -152,7 +141,7 @@ def convert_dataset(source_folder, output_folder):
     """
     import glob
 
-    # try subfolders first (e.g. data/M1EXP1/M1EXP1.dat)
+    # trying subfolders first (e.g. data/M1EXP1/M1EXP1.dat)
     dat_files = glob.glob(os.path.join(source_folder, '*', '*.dat'))
     if not dat_files:
         dat_files = glob.glob(os.path.join(source_folder, '*.dat'))
