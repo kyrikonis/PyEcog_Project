@@ -108,3 +108,4 @@ pyecog2/license/license_reg.txt
 
 # Data
 Notebooks/data/
+Notebooks/*.pkl
