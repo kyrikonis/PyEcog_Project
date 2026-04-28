@@ -27,9 +27,9 @@ def readbinary_dat(file):
     within figshare dataset each file has 86400 records (one per 4 second epoch, 96 hours total).
     """
     record_dtype = np.dtype([
-        ('score', 'S1'),              # sleep state (wake, nrem, or rem)
+        ('score', 'S1'), # sleep state (wake, nrem, or rem)
         ('spectra', np.float32, (401,)),  # 401 power spectrum bins (0 to 100Hz at 0.25Hz)
-        ('misc', np.float32, (3,))       # EEG, EMG variance and temp
+        ('misc', np.float32, (3,)) # EEG, EMG variance and temp
     ])
     records = np.fromfile(file, dtype=record_dtype, count=86400)
 
@@ -52,6 +52,19 @@ def readbinary_EEG(file):
     raw_EEG = np.fromfile(file, dtype=np.float32)
     logger.info(f"Read {file}: {len(raw_EEG)} samples ({len(raw_EEG)/200/3600:.1f} hours)")
     return raw_EEG
+
+
+def encode_sleep_states(sleep_scores):
+    """
+    Clean epochs:'w' -> 1, 'n' -> 2, 'r' -> 3
+    artefact codes map to 0  (remapped to state in post-conversion notebook)
+    unknown characters map to 0
+    """
+    score_map = np.zeros(256, dtype=np.uint8)
+    score_map[ord('w')] = 1
+    score_map[ord('n')] = 2
+    score_map[ord('r')] = 3
+    return score_map[np.frombuffer(sleep_scores.encode(), dtype=np.uint8)]
 
 
 def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=None):
@@ -111,12 +124,7 @@ def convert_animal_to_multimodal(dat_file, eeg_file, output_folder, animal_id=No
     # Sleep states
     sleep_path = os.path.join(output_folder, f"{animal_id}_SleepScore.bin")
 
-    # mapping state characters to numbers
-    score_map = np.zeros(256, dtype=np.uint8)
-    score_map[ord('w')] = 1  # wake
-    score_map[ord('n')] = 2  # NREM
-    score_map[ord('r')] = 3  # REM
-    sleep_numeric = score_map[np.frombuffer(sleep_scores.encode(), dtype=np.uint8)]
+    sleep_numeric = encode_sleep_states(sleep_scores)
 
     sleep_numeric.tofile(sleep_path)
     created_files['SleepScore'] = create_metafile_for_modality(
