@@ -32,7 +32,7 @@ pip install pyecog2
 
 ## Dataset
 
-This project uses the **Hubbard et al. (2020)** mouse sleep dataset, doi: [10.6084/m9.figshare.12245366](https://doi.org/10.6084/m9.figshare.12245366). It covers two cohorts: EXP1 (29 mice, EEG/EMG + sleep scores) and EXP2 (9 mice, as EXP1 plus cortical temperature).
+This project uses the **Hubbard et al. (2020)** mouse sleep dataset, doi: [10.6084/m9.figshare.12245366](https://doi.org/10.6084/m9.figshare.12245366). It covers two cohorts: EXP1 (29 mice, EEG/EMG + sleep scores) and EXP2 (9 mice, same features as EXP1 plus cortical temperature).
 
 ---
 
@@ -40,7 +40,7 @@ This project uses the **Hubbard et al. (2020)** mouse sleep dataset, doi: [10.60
 
 Raw files must be converted to PyEcog's `.bin`/`.meta` format before use. Run **[`Notebooks/ConvertDataFigshare.ipynb`](Notebooks/ConvertDataFigshare.ipynb)** to convert all animals.
 
-To convert a single animal from the command line:
+To convert a single animal from the terminal:
 
 ```shell
 python -m pyecog2.convert_figshare_sleep_data <dat_file> <eeg_file> [output_folder]
